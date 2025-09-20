@@ -2,526 +2,454 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>3×3 Sliding Tile Puzzle (retro)</title>
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>3×3 Sliding Tile Puzzle</title>
 <style>
-  /* Late-1990s / early web look: plain, square edges, visible borders, system font */
-  html,body {
-    height:100%;
-    margin:0;
-    padding:10px;
-    background:#f0f0f0;
-    color:#000;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size:14px;
-  }
-  h1 {
-    font-size:18px;
-    margin:0 0 10px 0;
-  }
-  .layout {
-    display:flex;
-    gap:16px;
-    align-items:flex-start;
-  }
-
-  /* Puzzle area */
-  .puzzle-wrap {
-    border:2px solid #000;
-    padding:8px;
-    background:#fff;
-    width:236px; /* grid + padding */
-  }
-  #puzzle {
-    width:210px;
-    height:210px;
-    display:grid;
-    grid-template-columns:repeat(3, 1fr);
-    grid-template-rows:repeat(3, 1fr);
-    gap:6px;
-    box-sizing:border-box;
-  }
+  /* Late 1990s look: plain, system fonts, visible borders, square buttons, no rounded corners */
+  html,body { height:100%; margin:0; padding:20px; background:#f0f0f0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color:#000; }
+  h1 { font-size:18px; margin:0 0 12px 0; }
+  #container { width:280px; }
+  #board { width:270px; height:270px; border:2px solid #000; display:grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); background:#fff; }
   .tile {
+    box-sizing:border-box;
+    border:1px solid #000;
     display:flex;
     align-items:center;
     justify-content:center;
-    font-weight:700;
-    font-size:28px;
-    border:2px solid #000;
-    background:#eaeaea;
+    font-weight:bold;
+    font-size:36px;
     cursor:pointer;
     user-select:none;
-    -webkit-user-select:none;
     outline: none;
+    background: #eaeaea;
   }
-  .tile.blank {
-    background:#fff;
-    cursor:default;
-  }
-  .tile:focus {
-    outline:2px dotted #000;
-  }
-
-  /* Controls and stats */
-  .controls {
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-    width:300px;
-  }
-  .buttons {
-    display:flex;
-    gap:8px;
-    margin-bottom:6px;
-  }
+  .tile.blank { background:#fff; cursor:default; }
+  .controls { margin-top:12px; display:flex; gap:8px; }
   button {
     padding:6px 10px;
     border:2px solid #000;
     background:#ddd;
     cursor:pointer;
-    box-sizing:border-box;
-    /* no rounded corners, no shadows */
-    border-radius:0;
+    font-size:13px;
   }
-  button:active { transform: translateY(0px); }
-  .small {
-    padding:4px 6px;
+  button:active { background:#ccc; }
+  .info { margin-top:10px; font-size:13px; }
+  .status { margin-top:6px; font-weight:bold; }
+  .flash {
+    animation: flash-bg 600ms linear 0s 3;
   }
-
-  .stats {
-    border:1px solid #000;
-    padding:8px;
-    background:#fff;
-  }
-  .stat-row {
-    margin:4px 0;
+  @keyframes flash-bg {
+    0% { background-color: #fff; }
+    25% { background-color: #ff0; }
+    50% { background-color: #fff; }
+    75% { background-color: #ff0; }
+    100% { background-color: #fff; }
   }
 
   /* High scores */
-  .scores {
-    margin-top:6px;
-    border:1px solid #000;
-    padding:8px;
-    background:#fff;
-  }
-  .scores ol {
-    margin:6px 0 0 18px;
-    padding:0;
-  }
-
-  /* Solved flash: quick, simple */
-  @keyframes retroFlash {
-    0% { background-color: #fff; }
-    25% { background-color: #ffff66; }
-    50% { background-color: #fff; }
-    75% { background-color: #ffff66; }
-    100% { background-color: #fff; }
-  }
-  .flash {
-    animation: retroFlash 0.8s linear;
-  }
-
-  /* small footer text */
-  .note { font-size:12px; color:#333; margin-top:8px; }
+  #scores { margin-top:14px; font-size:13px; border-top:1px solid #000; padding-top:10px; }
+  #scores ol { padding-left:18px; margin:4px 0 8px 0; }
+  #scores small { display:block; color:#333; margin-top:6px; }
+  /* Minimal accessibility focus */
+  .tile:focus { outline:2px dotted #000; }
 </style>
 </head>
 <body>
+<div id="container">
   <h1>3×3 Sliding Tile Puzzle</h1>
-  <div class="layout">
-    <div class="puzzle-wrap" id="puzzleWrap">
-      <div id="puzzle" aria-label="Sliding puzzle" role="application" tabindex="0"></div>
-    </div>
+  <div id="board" aria-label="Sliding puzzle board" tabindex="0"></div>
 
-    <div class="controls">
-      <div class="buttons">
-        <button id="shuffleBtn">Shuffle</button>
-        <button id="resetBtn">Reset</button>
-      </div>
-
-      <div class="stats">
-        <div class="stat-row"><strong>Moves:</strong> <span id="moves">0</span></div>
-        <div class="stat-row"><strong>Time:</strong> <span id="time">00:00</span></div>
-        <div class="stat-row"><strong>Status:</strong> <span id="status">Not solved</span></div>
-      </div>
-
-      <div class="scores">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <strong>High Scores (Top 5)</strong>
-          <button id="clearScoresBtn" class="small">Clear Scores</button>
-        </div>
-        <ol id="highScoresList"></ol>
-      </div>
-
-      <div class="note">
-        Controls: Click tiles to move or use arrow keys to slide tile(s) into the blank. Two-space slides are allowed when blank is two tiles away in the same row/column.
-      </div>
-    </div>
+  <div class="controls">
+    <button id="shuffleBtn" type="button">Shuffle</button>
+    <button id="resetBtn" type="button">Reset</button>
+    <button id="clearScoresBtn" type="button">Clear Scores</button>
   </div>
 
-<script>
-(function() {
-  // Board indices: 0..8, row = Math.floor(i/3), col = i%3
-  // Solved board: 1..8, 0 blank at index 8
-  const PUZZLE_SIZE = 3;
-  const SOLVED = [1,2,3,4,5,6,7,8,0];
+  <div class="info">
+    <div>Moves: <span id="moves">0</span></div>
+    <div>Time: <span id="time">0:00</span></div>
+    <div class="status" id="status">Not solved</div>
+  </div>
 
-  let board = SOLVED.slice();
-  const puzzleEl = document.getElementById('puzzle');
+  <div id="scores">
+    <strong>High Scores (top 5)</strong>
+    <ol id="scoreList"></ol>
+    <small>(Sorted by moves, then time. Stored locally in your browser.)</small>
+  </div>
+</div>
+
+<script>
+(function(){
+  // Board representation: array of 9 numbers: 1..8, 0 = blank
+  const boardEl = document.getElementById('board');
   const movesEl = document.getElementById('moves');
   const timeEl = document.getElementById('time');
   const statusEl = document.getElementById('status');
   const shuffleBtn = document.getElementById('shuffleBtn');
   const resetBtn = document.getElementById('resetBtn');
-  const highScoresList = document.getElementById('highScoresList');
   const clearScoresBtn = document.getElementById('clearScoresBtn');
-  const puzzleWrap = document.getElementById('puzzleWrap');
+  const scoreListEl = document.getElementById('scoreList');
 
+  const STORAGE_KEY = 'sliding_highscores_v1';
+
+  let board = [];
   let moves = 0;
-  let timerInterval = null;
+  let timer = null;
   let startTime = null;
   let elapsedSeconds = 0;
-  let started = false;
+  let isShuffling = false;
+  let solved = false;
 
-  // LocalStorage key
-  const LS_KEY = 'slidingHighScores3x3';
+  function solvedLayout() { return [1,2,3,4,5,6,7,8,0]; }
 
+  // Render board
   function render() {
-    // Clear puzzle
-    puzzleEl.innerHTML = '';
-    for (let i = 0; i < 9; i++) {
+    boardEl.innerHTML = '';
+    board.forEach((v, idx) => {
       const tile = document.createElement('div');
-      tile.className = 'tile' + (board[i] === 0 ? ' blank' : '');
-      tile.setAttribute('data-index', i);
-      tile.setAttribute('tabindex', board[i] === 0 ? '-1' : '0');
-      tile.setAttribute('role', board[i] === 0 ? 'img' : 'button');
-      tile.setAttribute('aria-label', board[i] === 0 ? 'blank' : 'tile ' + board[i]);
-      tile.textContent = board[i] === 0 ? '' : board[i];
+      tile.className = 'tile' + (v===0 ? ' blank' : '');
+      tile.setAttribute('data-index', idx);
+      tile.setAttribute('tabindex', v===0 ? '-1' : '0');
+      tile.textContent = v===0 ? '' : v;
       tile.addEventListener('click', onTileClick);
-      tile.addEventListener('keydown', function(e){
-        // allow Enter/Space on tiles to activate
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onTileClick.call(this, e);
-        }
+      tile.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { onTileClick(e); e.preventDefault(); }
       });
-      puzzleEl.appendChild(tile);
+      boardEl.appendChild(tile);
+    });
+  }
+
+  // Helpers: index -> row/col
+  function rowOf(i){ return Math.floor(i/3); }
+  function colOf(i){ return i%3; }
+  function indexOf(r,c){ return r*3 + c; }
+
+  // Find index of value
+  function idxOf(val){ return board.indexOf(val); }
+
+  // Check adjacency or two-away in same row/col
+  function canMoveFrom(sourceIdx, blankIdx) {
+    const sr = rowOf(sourceIdx), sc = colOf(sourceIdx);
+    const br = rowOf(blankIdx), bc = colOf(blankIdx);
+    // same row
+    if (sr === br) {
+      const d = Math.abs(sc - bc);
+      return d === 1 || d === 2;
     }
-    movesEl.textContent = moves;
-    timeEl.textContent = formatTime(elapsedSeconds);
-    statusEl.textContent = isSolved() ? 'Solved' : 'Not solved';
-  }
-
-  // Helper: format seconds to mm:ss
-  function formatTime(s) {
-    const mm = Math.floor(s/60).toString().padStart(2,'0');
-    const ss = Math.floor(s%60).toString().padStart(2,'0');
-    return mm + ':' + ss;
-  }
-
-  function getBlankIndex() {
-    return board.indexOf(0);
-  }
-
-  function indexToRC(idx) {
-    return { r: Math.floor(idx/PUZZLE_SIZE), c: idx % PUZZLE_SIZE };
-  }
-
-  function canMove(tileIndex) {
-    const b = getBlankIndex();
-    if (tileIndex === b) return false;
-    const t = indexToRC(tileIndex);
-    const bl = indexToRC(b);
-    if (t.r === bl.r) {
-      const dc = Math.abs(t.c - bl.c);
-      return dc === 1 || dc === 2;
-    }
-    if (t.c === bl.c) {
-      const dr = Math.abs(t.r - bl.r);
-      return dr === 1 || dr === 2;
+    // same col
+    if (sc === bc) {
+      const d = Math.abs(sr - br);
+      return d === 1 || d === 2;
     }
     return false;
   }
 
-  // Shift tiles between blank and tileIndex so blank ends up at tileIndex.
-  function shiftTilesToBlank(tileIndex) {
-    const b = getBlankIndex();
-    if (!canMove(tileIndex)) return false;
-    // Determine step: +1/-1 for row moves, +3/-3 for col moves
-    let step = 0;
-    if (Math.floor(tileIndex/PUZZLE_SIZE) === Math.floor(b/PUZZLE_SIZE)) {
-      // same row
-      step = (b < tileIndex) ? +1 : -1;
+  // Move logic: if source and blank adjacent -> swap; if two away -> shift both tiles toward blank
+  function moveFrom(sourceIdx) {
+    if (isShuffling || solved) return false;
+    const blankIdx = idxOf(0);
+    if (!canMoveFrom(sourceIdx, blankIdx)) return false;
+    performMove(sourceIdx, blankIdx);
+    return true;
+  }
+
+  function performMove(sourceIdx, blankIdx) {
+    const sr = rowOf(sourceIdx), sc = colOf(sourceIdx);
+    const br = rowOf(blankIdx), bc = colOf(blankIdx);
+
+    // Single adjacent swap
+    if (Math.abs(sr-br) + Math.abs(sc-bc) === 1) {
+      // swap
+      [board[sourceIdx], board[blankIdx]] = [board[blankIdx], board[sourceIdx]];
     } else {
-      // same column
-      step = (b < tileIndex) ? +PUZZLE_SIZE : -PUZZLE_SIZE;
+      // two-away same row or column: shift tiles between source and blank toward blank
+      if (sr === br && Math.abs(sc-bc) === 2) {
+        // same row horizontal shift
+        const midC = (sc + bc) / 2;
+        const midIdx = indexOf(sr, midC);
+        // Move mid tile into blank, source tile into mid, blank goes to source
+        board[blankIdx] = board[midIdx];
+        board[midIdx] = board[sourceIdx];
+        board[sourceIdx] = 0;
+      } else if (sc === bc && Math.abs(sr-br) === 2) {
+        // same column vertical shift
+        const midR = (sr + br) / 2;
+        const midIdx = indexOf(midR, sc);
+        board[blankIdx] = board[midIdx];
+        board[midIdx] = board[sourceIdx];
+        board[sourceIdx] = 0;
+      } else {
+        // shouldn't happen
+        return;
+      }
     }
 
-    if (step > 0) {
-      // iterate idx from b to tileIndex- step wise
-      for (let idx = b; idx !== tileIndex; idx += step) {
-        board[idx] = board[idx + step];
-      }
-      board[tileIndex] = 0;
-    } else {
-      // step < 0, iterate downwards
-      for (let idx = b; idx !== tileIndex; idx += step) {
-        board[idx] = board[idx + step];
-      }
-      board[tileIndex] = 0;
-    }
-    return true;
+    // Start timer on first move (if not already running)
+    if (!timer) startTimer();
+
+    moves++;
+    updateHUD();
+    render();
+    checkSolved();
   }
 
   function onTileClick(e) {
-    const idx = Number(this.getAttribute('data-index'));
-    if (moveTile(idx)) {
-      // focus puzzle to capture keyboard navigation if needed
-      puzzleEl.focus();
-    }
+    const idx = Number(e.currentTarget.getAttribute('data-index'));
+    if (board[idx] === 0) return;
+    moveFrom(idx);
   }
 
-  function moveTile(tileIndex) {
-    if (!canMove(tileIndex)) return false;
-    // start timer on first move
-    if (!started) startTimer();
-    // perform shift
-    const moved = shiftTilesToBlank(tileIndex);
-    if (!moved) return false;
-    moves++;
-    render();
-    if (isSolved()) {
-      stopTimer();
-      statusEl.textContent = 'Solved';
-      flashPuzzle();
-      maybeAddHighScore();
-    }
-    return true;
-  }
-
-  // Keyboard handler: arrow keys move tile(s) into blank from that direction
+  // Arrow keys: pressing arrow slides tile in that direction into the blank (if present)
   function onKeyDown(e) {
-    const key = e.key;
-    const b = getBlankIndex();
-    let target = null;
-    if (key === 'ArrowLeft') {
-      // want tile to left of blank (blankIndex -1 or -2)
-      const col = b % PUZZLE_SIZE;
-      if (col >= 1) {
-        target = b - 1;
-      } else if (col >= 2) {
-        target = b - 2;
-      }
-    } else if (key === 'ArrowRight') {
-      const col = b % PUZZLE_SIZE;
-      if (col <= PUZZLE_SIZE - 2) {
-        target = b + 1;
-      } else if (col <= PUZZLE_SIZE - 3) {
-        target = b + 2;
-      }
-    } else if (key === 'ArrowUp') {
-      const row = Math.floor(b / PUZZLE_SIZE);
-      if (row >= 1) {
-        target = b - PUZZLE_SIZE;
-      } else if (row >= 2) {
-        target = b - 2*PUZZLE_SIZE;
-      }
-    } else if (key === 'ArrowDown') {
-      const row = Math.floor(b / PUZZLE_SIZE);
-      if (row <= PUZZLE_SIZE - 2) {
-        target = b + PUZZLE_SIZE;
-      } else if (row <= PUZZLE_SIZE - 3) {
-        target = b + 2*PUZZLE_SIZE;
-      }
-    } else {
-      return; // ignore other keys
+    if (isShuffling) return;
+    const blankIdx = idxOf(0);
+    const br = rowOf(blankIdx), bc = colOf(blankIdx);
+    let sourceR = br, sourceC = bc;
+
+    // ArrowUp => move tile below blank up into blank (so sourceRow = br+1)
+    if (e.key === 'ArrowUp') sourceR = br + 1;
+    else if (e.key === 'ArrowDown') sourceR = br - 1;
+    else if (e.key === 'ArrowLeft') sourceC = bc + 1;
+    else if (e.key === 'ArrowRight') sourceC = bc - 1;
+    else return;
+
+    // out of bounds? handle two-away as well: if immediately out of bounds try two-away
+    if (sourceR < 0 || sourceR > 2 || sourceC < 0 || sourceC > 2) {
+      // try two-away
+      if (e.key === 'ArrowUp') sourceR = br + 2;
+      else if (e.key === 'ArrowDown') sourceR = br - 2;
+      else if (e.key === 'ArrowLeft') sourceC = bc + 2;
+      else if (e.key === 'ArrowRight') sourceC = bc - 2;
+      // still out => ignore
     }
-    // Special handling: if the immediate adjacent exists, prefer it; else check two-away if same row/col
-    // The above logic sets target to adjacent if available, else (if impossible) tries two-away, but ensure validity:
-    if (target !== null && canMove(target)) {
+
+    if (sourceR < 0 || sourceR > 2 || sourceC < 0 || sourceC > 2) return;
+    const sourceIdx = indexOf(sourceR, sourceC);
+    if (canMoveFrom(sourceIdx, blankIdx)) {
+      moveFrom(sourceIdx);
       e.preventDefault();
-      moveTile(target);
-    } else {
-      // Try two-away explicitly: check two-away positions and move if allowed
-      let maybe = null;
-      if (key === 'ArrowLeft') {
-        const col = b % PUZZLE_SIZE;
-        if (col >= 2) maybe = b - 2;
-      } else if (key === 'ArrowRight') {
-        const col = b % PUZZLE_SIZE;
-        if (col <= PUZZLE_SIZE - 3) maybe = b + 2;
-      } else if (key === 'ArrowUp') {
-        const row = Math.floor(b/PUZZLE_SIZE);
-        if (row >= 2) maybe = b - 2*PUZZLE_SIZE;
-      } else if (key === 'ArrowDown') {
-        const row = Math.floor(b/PUZZLE_SIZE);
-        if (row <= PUZZLE_SIZE - 3) maybe = b + 2*PUZZLE_SIZE;
-      }
-      if (maybe !== null && canMove(maybe)) {
-        e.preventDefault();
-        moveTile(maybe);
-      }
     }
   }
 
   // Timer functions
   function startTimer() {
-    if (timerInterval) return;
-    started = true;
-    startTime = Date.now() - elapsedSeconds*1000;
-    timerInterval = setInterval(function() {
+    if (timer) return;
+    startTime = Date.now() - elapsedSeconds * 1000;
+    timer = setInterval(() => {
       elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-      timeEl.textContent = formatTime(elapsedSeconds);
+      updateTime();
     }, 250);
   }
   function stopTimer() {
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = null;
-    started = false;
+    if (timer) {
+      clearInterval(timer); timer = null;
+    }
   }
   function resetTimer() {
     stopTimer();
     elapsedSeconds = 0;
-    timeEl.textContent = formatTime(elapsedSeconds);
+    updateTime();
+  }
+  function updateTime() {
+    const s = elapsedSeconds % 60;
+    const m = Math.floor(elapsedSeconds / 60);
+    timeEl.textContent = m + ':' + (s < 10 ? '0' + s : s);
   }
 
-  // Shuffle: generate random solvable permutation
-  function shuffleBoard() {
-    // generate random permutation until solvable and not solved
-    let arr;
-    do {
-      arr = shuffleArray([1,2,3,4,5,6,7,8,0]);
-    } while (!isSolvable(arr) || arraysEqual(arr, SOLVED));
-    board = arr;
-    moves = 0;
-    resetTimer();
-    render();
+  function updateHUD() {
+    movesEl.textContent = moves;
   }
 
-  function resetBoard() {
-    board = SOLVED.slice();
-    moves = 0;
-    resetTimer();
-    render();
-  }
-
-  // Utility: Fisher-Yates shuffle
-  function shuffleArray(a) {
-    const arr = a.slice();
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i+1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+  // Shuffle by doing a sequence of random legal moves from solved state (ensures solvable)
+  function shuffle(times = 200) {
+    isShuffling = true;
+    board = solvedLayout().slice();
+    let lastMove = -1;
+    for (let i=0;i<times;i++) {
+      const blank = idxOf(0);
+      const neighbors = getLegalSources(blank).filter(n => n !== lastMove);
+      const pick = neighbors[Math.floor(Math.random()*neighbors.length)];
+      // perform single or two-tile move randomly if possible
+      const cand = pick;
+      // do move (simulate)
+      const br = rowOf(blank), bc = colOf(blank);
+      const sr = rowOf(cand), sc = colOf(cand);
+      if (Math.abs(sr-br)+Math.abs(sc-bc) === 1) {
+        [board[cand], board[blank]] = [board[blank], board[cand]];
+      } else {
+        // two-away shift
+        if (sr === br && Math.abs(sc-bc) === 2) {
+          const mid = indexOf(sr, (sc+bc)/2);
+          board[blank] = board[mid];
+          board[mid] = board[cand];
+          board[cand] = 0;
+        } else if (sc === bc && Math.abs(sr-br) === 2) {
+          const mid = indexOf((sr+br)/2, sc);
+          board[blank] = board[mid];
+          board[mid] = board[cand];
+          board[cand] = 0;
+        } else {
+          // fallback swap
+          [board[cand], board[blank]] = [board[blank], board[cand]];
+        }
+      }
+      lastMove = cand;
     }
-    return arr;
+    // If by chance the shuffle returned the solved state, do one extra random move
+    if (isSolvedBoard(board)) {
+      // do one legal move
+      const blank = idxOf(0);
+      const pick = getLegalSources(blank)[0];
+      [board[pick], board[blank]] = [board[blank], board[pick]];
+    }
+
+    moves = 0;
+    resetTimer();
+    solved = false;
+    updateHUD();
+    updateTime();
+    render();
+    isShuffling = false;
+    statusEl.textContent = 'Not solved';
   }
 
-  // Solvability for 3x3: inversion count even -> solvable
-  function isSolvable(arr) {
-    const flat = arr.filter(x=>x!==0);
-    let inv = 0;
-    for (let i = 0; i < flat.length; i++) {
-      for (let j = i+1; j < flat.length; j++) {
-        if (flat[i] > flat[j]) inv++;
+  // Return indices of tiles that can legally move into blank (adjacent or two-away in same row/col)
+  function getLegalSources(blankIdx) {
+    const br = rowOf(blankIdx), bc = colOf(blankIdx);
+    const candidates = [];
+    // same row: left/right by 1 or 2
+    for (let dc = -2; dc <= 2; dc++) {
+      if (dc === 0) continue;
+      const c = bc + dc;
+      if (c >= 0 && c <= 2) {
+        const idx = indexOf(br, c);
+        if (canMoveFrom(idx, blankIdx)) candidates.push(idx);
       }
     }
-    return inv % 2 === 0;
+    // same column: up/down by 1 or 2
+    for (let dr = -2; dr <= 2; dr++) {
+      if (dr === 0) continue;
+      const r = br + dr;
+      if (r >= 0 && r <= 2) {
+        const idx = indexOf(r, bc);
+        if (canMoveFrom(idx, blankIdx)) candidates.push(idx);
+      }
+    }
+    // deduplicate
+    return [...new Set(candidates)];
   }
 
-  function arraysEqual(a,b) {
-    if (a.length !== b.length) return false;
-    for (let i=0;i<a.length;i++) if (a[i] !== b[i]) return false;
-    return true;
+  function isSolvedBoard(b) {
+    for (let i=0;i<8;i++) if (b[i] !== i+1) return false;
+    return b[8] === 0;
   }
 
-  function isSolved() {
-    return arraysEqual(board, SOLVED);
+  function checkSolved() {
+    if (isSolvedBoard(board)) {
+      solved = true;
+      stopTimer();
+      statusEl.textContent = 'Solved!';
+      flashBoard();
+      recordHighScore();
+    } else {
+      statusEl.textContent = 'Not solved';
+    }
   }
 
-  // Flash puzzle area briefly when solved
-  function flashPuzzle() {
-    puzzleWrap.classList.add('flash');
-    setTimeout(()=>puzzleWrap.classList.remove('flash'), 900);
+  function flashBoard() {
+    // Add flash class briefly
+    boardEl.classList.add('flash');
+    setTimeout(() => boardEl.classList.remove('flash'), 2000);
   }
 
-  // High Scores management
+  // High scores: save {moves, timeSeconds, when}
   function loadHighScores() {
     try {
-      const raw = localStorage.getItem(LS_KEY);
+      const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return [];
-      return parsed;
-    } catch (err) {
-      return [];
-    }
+      return JSON.parse(raw);
+    } catch (e) { return []; }
   }
   function saveHighScores(list) {
-    localStorage.setItem(LS_KEY, JSON.stringify(list));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0,5)));
   }
-  function updateHighScoresListUI() {
-    const scores = loadHighScores();
-    highScoresList.innerHTML = '';
-    if (scores.length === 0) {
-      highScoresList.innerHTML = '<li><em>No scores yet</em></li>';
+
+  function recordHighScore() {
+    const list = loadHighScores();
+    list.push({ moves: moves, time: elapsedSeconds, when: Date.now() });
+    // sort: primary by moves ascending, secondary by time ascending
+    list.sort((a,b) => a.moves - b.moves || a.time - b.time || a.when - b.when);
+    const top = list.slice(0,5);
+    saveHighScores(top);
+    renderScores();
+  }
+
+  function clearScores() {
+    localStorage.removeItem(STORAGE_KEY);
+    renderScores();
+  }
+
+  function renderScores() {
+    const list = loadHighScores();
+    scoreListEl.innerHTML = '';
+    if (list.length === 0) {
+      const li = document.createElement('li');
+      li.textContent = 'No scores yet';
+      scoreListEl.appendChild(li);
       return;
     }
-    for (const s of scores) {
+    list.forEach(entry => {
       const li = document.createElement('li');
-      li.textContent = `${formatTime(s.time)} — ${s.moves} moves`;
-      highScoresList.appendChild(li);
-    }
-  }
-
-  function maybeAddHighScore() {
-    // On solve, add {moves, time} to high scores if qualifies; keep top 5
-    const elapsed = elapsedSeconds;
-    const entry = { moves: moves, time: elapsed, created: Date.now() };
-    let scores = loadHighScores();
-    // add then sort by time asc then moves asc
-    scores.push(entry);
-    scores.sort((a,b) => {
-      if (a.time !== b.time) return a.time - b.time;
-      if (a.moves !== b.moves) return a.moves - b.moves;
-      return a.created - b.created;
+      const mins = Math.floor(entry.time/60);
+      const secs = entry.time % 60;
+      li.textContent = `${entry.moves} moves — ${mins}:${secs < 10 ? '0'+secs : secs}`;
+      scoreListEl.appendChild(li);
     });
-    // trim to 5
-    if (scores.length > 5) scores = scores.slice(0,5);
-    saveHighScores(scores);
-    updateHighScoresListUI();
   }
 
-  // Clear scores
-  clearScoresBtn.addEventListener('click', function() {
-    if (confirm('Clear high scores?')) {
-      localStorage.removeItem(LS_KEY);
-      updateHighScoresListUI();
-    }
-  });
-
-  // Setup event handlers
-  shuffleBtn.addEventListener('click', function() {
-    shuffleBoard();
-    puzzleEl.focus();
-  });
-  resetBtn.addEventListener('click', function() {
-    resetBoard();
-    puzzleEl.focus();
-  });
-
-  document.addEventListener('keydown', onKeyDown);
+  // Reset to solved state
+  function reset() {
+    board = solvedLayout().slice();
+    moves = 0;
+    resetTimer();
+    updateHUD();
+    updateTime();
+    solved = true; // it's solved
+    render();
+    statusEl.textContent = 'Solved';
+  }
 
   // Initialize
-  resetBoard();
-  updateHighScoresListUI();
+  function init() {
+    board = solvedLayout().slice();
+    solved = true;
+    render();
+    updateHUD();
+    updateTime();
+    renderScores();
+    // Event listeners
+    shuffleBtn.addEventListener('click', () => {
+      shuffle(200);
+      // focus board for keyboard control
+      boardEl.focus();
+    });
+    resetBtn.addEventListener('click', () => {
+      reset();
+      boardEl.focus();
+    });
+    clearScoresBtn.addEventListener('click', () => {
+      if (confirm('Clear all saved high scores?')) {
+        clearScores();
+      }
+    });
+    document.addEventListener('keydown', onKeyDown);
+    // allow clicking on board background to focus for keyboard support
+    boardEl.addEventListener('click', () => boardEl.focus());
+  }
 
-  // Expose some functions for debugging (not necessary)
-  window._slidingPuzzle = {
-    board: () => board.slice(),
-    shuffle: shuffleBoard,
-    reset: resetBoard,
-    highScores: loadHighScores
-  };
+  init();
 
 })();
 </script>
+
 </body>
 </html>
