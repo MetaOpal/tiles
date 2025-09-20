@@ -1,455 +1,265 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<title>3×3 Sliding Tile Puzzle</title>
-<style>
-  /* Late 1990s look: plain, system fonts, visible borders, square buttons, no rounded corners */
-  html,body { height:100%; margin:0; padding:20px; background:#f0f0f0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color:#000; }
-  h1 { font-size:18px; margin:0 0 12px 0; }
-  #container { width:280px; }
-  #board { width:270px; height:270px; border:2px solid #000; display:grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); background:#fff; }
-  .tile {
-    box-sizing:border-box;
-    border:1px solid #000;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-weight:bold;
-    font-size:36px;
-    cursor:pointer;
-    user-select:none;
-    outline: none;
-    background: #eaeaea;
-  }
-  .tile.blank { background:#fff; cursor:default; }
-  .controls { margin-top:12px; display:flex; gap:8px; }
-  button {
-    padding:6px 10px;
-    border:2px solid #000;
-    background:#ddd;
-    cursor:pointer;
-    font-size:13px;
-  }
-  button:active { background:#ccc; }
-  .info { margin-top:10px; font-size:13px; }
-  .status { margin-top:6px; font-weight:bold; }
-  .flash {
-    animation: flash-bg 600ms linear 0s 3;
-  }
-  @keyframes flash-bg {
-    0% { background-color: #fff; }
-    25% { background-color: #ff0; }
-    50% { background-color: #fff; }
-    75% { background-color: #ff0; }
-    100% { background-color: #fff; }
-  }
-
-  /* High scores */
-  #scores { margin-top:14px; font-size:13px; border-top:1px solid #000; padding-top:10px; }
-  #scores ol { padding-left:18px; margin:4px 0 8px 0; }
-  #scores small { display:block; color:#333; margin-top:6px; }
-  /* Minimal accessibility focus */
-  .tile:focus { outline:2px dotted #000; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3x3 Sliding Tile Puzzle</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+        }
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            gap: 2px;
+            background-color: #000;
+            padding: 2px;
+        }
+        .tile {
+            width: 100px;
+            height: 100px;
+            background-color: #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        .empty {
+            background-color: #fff;
+        }
+        #info {
+            margin-top: 10px;
+            font-size: 18px;
+        }
+        #message {
+            margin-top: 10px;
+            font-size: 24px;
+            color: green;
+        }
+        #high-scores {
+            margin-top: 20px;
+            font-size: 16px;
+            text-align: left;
+        }
+        .button-container {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
-<div id="container">
-  <h1>3×3 Sliding Tile Puzzle</h1>
-  <div id="board" aria-label="Sliding puzzle board" tabindex="0"></div>
+    <div id="game-board"></div>
+    <div id="info">
+        Moves: <span id="move-counter">0</span> | Time: <span id="timer">00:00</span>
+    </div>
+    <div class="button-container">
+        <button onclick="shuffleBoard()">Shuffle</button>
+        <button onclick="clearHighScores()">Clear High Scores</button>
+    </div>
+    <div id="message"></div>
+    <div id="high-scores">
+        <h3>High Scores</h3>
+        <ul id="high-scores-list"></ul>
+    </div>
 
-  <div class="controls">
-    <button id="shuffleBtn" type="button">Shuffle</button>
-    <button id="resetBtn" type="button">Reset</button>
-    <button id="clearScoresBtn" type="button">Clear Scores</button>
-  </div>
+    <script>
+        let board = [[1, 2, 3], [4, 5, 6], [7, 8, 0]];
+        const solvedBoard = [[1, 2, 3], [4, 5, 6], [7, 8, 0]];
+        const gridSize = 3;
+        let moveCount = 0;
+        let timerInterval = null;
+        let secondsElapsed = 0;
+        let isTimerRunning = false;
+        let highScores = JSON.parse(localStorage.getItem('highScores')) || [];
 
-  <div class="info">
-    <div>Moves: <span id="moves">0</span></div>
-    <div>Time: <span id="time">0:00</span></div>
-    <div class="status" id="status">Not solved</div>
-  </div>
-
-  <div id="scores">
-    <strong>High Scores (top 5)</strong>
-    <ol id="scoreList"></ol>
-    <small>(Sorted by moves, then time. Stored locally in your browser.)</small>
-  </div>
-</div>
-
-<script>
-(function(){
-  // Board representation: array of 9 numbers: 1..8, 0 = blank
-  const boardEl = document.getElementById('board');
-  const movesEl = document.getElementById('moves');
-  const timeEl = document.getElementById('time');
-  const statusEl = document.getElementById('status');
-  const shuffleBtn = document.getElementById('shuffleBtn');
-  const resetBtn = document.getElementById('resetBtn');
-  const clearScoresBtn = document.getElementById('clearScoresBtn');
-  const scoreListEl = document.getElementById('scoreList');
-
-  const STORAGE_KEY = 'sliding_highscores_v1';
-
-  let board = [];
-  let moves = 0;
-  let timer = null;
-  let startTime = null;
-  let elapsedSeconds = 0;
-  let isShuffling = false;
-  let solved = false;
-
-  function solvedLayout() { return [1,2,3,4,5,6,7,8,0]; }
-
-  // Render board
-  function render() {
-    boardEl.innerHTML = '';
-    board.forEach((v, idx) => {
-      const tile = document.createElement('div');
-      tile.className = 'tile' + (v===0 ? ' blank' : '');
-      tile.setAttribute('data-index', idx);
-      tile.setAttribute('tabindex', v===0 ? '-1' : '0');
-      tile.textContent = v===0 ? '' : v;
-      tile.addEventListener('click', onTileClick);
-      tile.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { onTileClick(e); e.preventDefault(); }
-      });
-      boardEl.appendChild(tile);
-    });
-  }
-
-  // Helpers: index -> row/col
-  function rowOf(i){ return Math.floor(i/3); }
-  function colOf(i){ return i%3; }
-  function indexOf(r,c){ return r*3 + c; }
-
-  // Find index of value
-  function idxOf(val){ return board.indexOf(val); }
-
-  // Check adjacency or two-away in same row/col
-  function canMoveFrom(sourceIdx, blankIdx) {
-    const sr = rowOf(sourceIdx), sc = colOf(sourceIdx);
-    const br = rowOf(blankIdx), bc = colOf(blankIdx);
-    // same row
-    if (sr === br) {
-      const d = Math.abs(sc - bc);
-      return d === 1 || d === 2;
-    }
-    // same col
-    if (sc === bc) {
-      const d = Math.abs(sr - br);
-      return d === 1 || d === 2;
-    }
-    return false;
-  }
-
-  // Move logic: if source and blank adjacent -> swap; if two away -> shift both tiles toward blank
-  function moveFrom(sourceIdx) {
-    if (isShuffling || solved) return false;
-    const blankIdx = idxOf(0);
-    if (!canMoveFrom(sourceIdx, blankIdx)) return false;
-    performMove(sourceIdx, blankIdx);
-    return true;
-  }
-
-  function performMove(sourceIdx, blankIdx) {
-    const sr = rowOf(sourceIdx), sc = colOf(sourceIdx);
-    const br = rowOf(blankIdx), bc = colOf(blankIdx);
-
-    // Single adjacent swap
-    if (Math.abs(sr-br) + Math.abs(sc-bc) === 1) {
-      // swap
-      [board[sourceIdx], board[blankIdx]] = [board[blankIdx], board[sourceIdx]];
-    } else {
-      // two-away same row or column: shift tiles between source and blank toward blank
-      if (sr === br && Math.abs(sc-bc) === 2) {
-        // same row horizontal shift
-        const midC = (sc + bc) / 2;
-        const midIdx = indexOf(sr, midC);
-        // Move mid tile into blank, source tile into mid, blank goes to source
-        board[blankIdx] = board[midIdx];
-        board[midIdx] = board[sourceIdx];
-        board[sourceIdx] = 0;
-      } else if (sc === bc && Math.abs(sr-br) === 2) {
-        // same column vertical shift
-        const midR = (sr + br) / 2;
-        const midIdx = indexOf(midR, sc);
-        board[blankIdx] = board[midIdx];
-        board[midIdx] = board[sourceIdx];
-        board[sourceIdx] = 0;
-      } else {
-        // shouldn't happen
-        return;
-      }
-    }
-
-    // Start timer on first move (if not already running)
-    if (!timer) startTimer();
-
-    moves++;
-    updateHUD();
-    render();
-    checkSolved();
-  }
-
-  function onTileClick(e) {
-    const idx = Number(e.currentTarget.getAttribute('data-index'));
-    if (board[idx] === 0) return;
-    moveFrom(idx);
-  }
-
-  // Arrow keys: pressing arrow slides tile in that direction into the blank (if present)
-  function onKeyDown(e) {
-    if (isShuffling) return;
-    const blankIdx = idxOf(0);
-    const br = rowOf(blankIdx), bc = colOf(blankIdx);
-    let sourceR = br, sourceC = bc;
-
-    // ArrowUp => move tile below blank up into blank (so sourceRow = br+1)
-    if (e.key === 'ArrowUp') sourceR = br + 1;
-    else if (e.key === 'ArrowDown') sourceR = br - 1;
-    else if (e.key === 'ArrowLeft') sourceC = bc + 1;
-    else if (e.key === 'ArrowRight') sourceC = bc - 1;
-    else return;
-
-    // out of bounds? handle two-away as well: if immediately out of bounds try two-away
-    if (sourceR < 0 || sourceR > 2 || sourceC < 0 || sourceC > 2) {
-      // try two-away
-      if (e.key === 'ArrowUp') sourceR = br + 2;
-      else if (e.key === 'ArrowDown') sourceR = br - 2;
-      else if (e.key === 'ArrowLeft') sourceC = bc + 2;
-      else if (e.key === 'ArrowRight') sourceC = bc - 2;
-      // still out => ignore
-    }
-
-    if (sourceR < 0 || sourceR > 2 || sourceC < 0 || sourceC > 2) return;
-    const sourceIdx = indexOf(sourceR, sourceC);
-    if (canMoveFrom(sourceIdx, blankIdx)) {
-      moveFrom(sourceIdx);
-      e.preventDefault();
-    }
-  }
-
-  // Timer functions
-  function startTimer() {
-    if (timer) return;
-    startTime = Date.now() - elapsedSeconds * 1000;
-    timer = setInterval(() => {
-      elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-      updateTime();
-    }, 250);
-  }
-  function stopTimer() {
-    if (timer) {
-      clearInterval(timer); timer = null;
-    }
-  }
-  function resetTimer() {
-    stopTimer();
-    elapsedSeconds = 0;
-    updateTime();
-  }
-  function updateTime() {
-    const s = elapsedSeconds % 60;
-    const m = Math.floor(elapsedSeconds / 60);
-    timeEl.textContent = m + ':' + (s < 10 ? '0' + s : s);
-  }
-
-  function updateHUD() {
-    movesEl.textContent = moves;
-  }
-
-  // Shuffle by doing a sequence of random legal moves from solved state (ensures solvable)
-  function shuffle(times = 200) {
-    isShuffling = true;
-    board = solvedLayout().slice();
-    let lastMove = -1;
-    for (let i=0;i<times;i++) {
-      const blank = idxOf(0);
-      const neighbors = getLegalSources(blank).filter(n => n !== lastMove);
-      const pick = neighbors[Math.floor(Math.random()*neighbors.length)];
-      // perform single or two-tile move randomly if possible
-      const cand = pick;
-      // do move (simulate)
-      const br = rowOf(blank), bc = colOf(blank);
-      const sr = rowOf(cand), sc = colOf(cand);
-      if (Math.abs(sr-br)+Math.abs(sc-bc) === 1) {
-        [board[cand], board[blank]] = [board[blank], board[cand]];
-      } else {
-        // two-away shift
-        if (sr === br && Math.abs(sc-bc) === 2) {
-          const mid = indexOf(sr, (sc+bc)/2);
-          board[blank] = board[mid];
-          board[mid] = board[cand];
-          board[cand] = 0;
-        } else if (sc === bc && Math.abs(sr-br) === 2) {
-          const mid = indexOf((sr+br)/2, sc);
-          board[blank] = board[mid];
-          board[mid] = board[cand];
-          board[cand] = 0;
-        } else {
-          // fallback swap
-          [board[cand], board[blank]] = [board[blank], board[cand]];
+        function drawBoard() {
+            const gameBoard = document.getElementById('game-board');
+            gameBoard.innerHTML = '';
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    const tile = document.createElement('div');
+                    tile.className = board[i][j] === 0 ? 'tile empty' : 'tile';
+                    tile.textContent = board[i][j] === 0 ? '' : board[i][j];
+                    if (board[i][j] !== 0) {
+                        tile.onclick = () => moveTile(i, j);
+                    }
+                    gameBoard.appendChild(tile);
+                }
+            }
+            document.getElementById('move-counter').textContent = moveCount;
+            updateHighScores();
+            checkWin();
         }
-      }
-      lastMove = cand;
-    }
-    // If by chance the shuffle returned the solved state, do one extra random move
-    if (isSolvedBoard(board)) {
-      // do one legal move
-      const blank = idxOf(0);
-      const pick = getLegalSources(blank)[0];
-      [board[pick], board[blank]] = [board[blank], board[pick]];
-    }
 
-    moves = 0;
-    resetTimer();
-    solved = false;
-    updateHUD();
-    updateTime();
-    render();
-    isShuffling = false;
-    statusEl.textContent = 'Not solved';
-  }
+        function findEmpty() {
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    if (board[i][j] === 0) return [i, j];
+                }
+            }
+            return null;
+        }
 
-  // Return indices of tiles that can legally move into blank (adjacent or two-away in same row/col)
-  function getLegalSources(blankIdx) {
-    const br = rowOf(blankIdx), bc = colOf(blankIdx);
-    const candidates = [];
-    // same row: left/right by 1 or 2
-    for (let dc = -2; dc <= 2; dc++) {
-      if (dc === 0) continue;
-      const c = bc + dc;
-      if (c >= 0 && c <= 2) {
-        const idx = indexOf(br, c);
-        if (canMoveFrom(idx, blankIdx)) candidates.push(idx);
-      }
-    }
-    // same column: up/down by 1 or 2
-    for (let dr = -2; dr <= 2; dr++) {
-      if (dr === 0) continue;
-      const r = br + dr;
-      if (r >= 0 && r <= 2) {
-        const idx = indexOf(r, bc);
-        if (canMoveFrom(idx, blankIdx)) candidates.push(idx);
-      }
-    }
-    // deduplicate
-    return [...new Set(candidates)];
-  }
+        function isValidMove(emptyRow, emptyCol, tileRow, tileCol) {
+            if (Math.abs(emptyRow - tileRow) + Math.abs(emptyCol - tileCol) === 1) {
+                return { type: 'single', positions: [[tileRow, tileCol]] };
+            }
+            // Check for two-tile move in the same row or column
+            if (emptyRow === tileRow && Math.abs(emptyCol - tileCol) === 2) {
+                const middleCol = (emptyCol + tileCol) / 2;
+                if (board[tileRow][middleCol] !== 0) {
+                    return { type: 'double', positions: [[tileRow, tileCol], [tileRow, middleCol]] };
+                }
+            } else if (emptyCol === tileCol && Math.abs(emptyRow - tileRow) === 2) {
+                const middleRow = (emptyRow + tileRow) / 2;
+                if (board[middleRow][tileCol] !== 0) {
+                    return { type: 'double', positions: [[tileRow, tileCol], [middleRow, tileCol]] };
+                }
+            }
+            return null;
+        }
 
-  function isSolvedBoard(b) {
-    for (let i=0;i<8;i++) if (b[i] !== i+1) return false;
-    return b[8] === 0;
-  }
+        function moveTile(tileRow, tileCol) {
+            const [emptyRow, emptyCol] = findEmpty();
+            const moveInfo = isValidMove(emptyRow, emptyCol, tileRow, tileCol);
+            if (moveInfo) {
+                if (moveInfo.type === 'single') {
+                    [board[emptyRow][emptyCol], board[tileRow][tileCol]] = 
+                    [board[tileRow][tileCol], board[emptyRow][emptyCol]];
+                } else if (moveInfo.type === 'double') {
+                    const [[r1, c1], [r2, c2]] = moveInfo.positions;
+                    if (emptyRow === tileRow) { // Horizontal move
+                        board[emptyRow][emptyCol] = board[tileRow][c2];
+                        board[tileRow][c2] = board[tileRow][c1];
+                        board[tileRow][c1] = 0;
+                    } else { // Vertical move
+                        board[emptyRow][emptyCol] = board[r2][tileCol];
+                        board[r2][tileCol] = board[r1][tileCol];
+                        board[r1][tileCol] = 0;
+                    }
+                }
+                moveCount++;
+                if (!isTimerRunning) {
+                    startTimer();
+                }
+                drawBoard();
+            }
+        }
 
-  function checkSolved() {
-    if (isSolvedBoard(board)) {
-      solved = true;
-      stopTimer();
-      statusEl.textContent = 'Solved!';
-      flashBoard();
-      recordHighScore();
-    } else {
-      statusEl.textContent = 'Not solved';
-    }
-  }
+        function startTimer() {
+            isTimerRunning = true;
+            timerInterval = setInterval(() => {
+                secondsElapsed++;
+                const minutes = Math.floor(secondsElapsed / 60);
+                const seconds = secondsElapsed % 60;
+                document.getElementById('timer').textContent = 
+                    `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }, 1000);
+        }
 
-  function flashBoard() {
-    // Add flash class briefly
-    boardEl.classList.add('flash');
-    setTimeout(() => boardEl.classList.remove('flash'), 2000);
-  }
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                isTimerRunning = false;
+            }
+        }
 
-  // High scores: save {moves, timeSeconds, when}
-  function loadHighScores() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return [];
-      return JSON.parse(raw);
-    } catch (e) { return []; }
-  }
-  function saveHighScores(list) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0,5)));
-  }
+        function shuffleBoard() {
+            board = [[1, 2, 3], [4, 5, 6], [7, 8, 0]];
+            for (let i = 0; i < 100; i++) {
+                const [emptyRow, emptyCol] = findEmpty();
+                const possibleMoves = [
+                    [emptyRow - 1, emptyCol], [emptyRow + 1, emptyCol],
+                    [emptyRow, emptyCol - 1], [emptyRow, emptyCol + 1],
+                    [emptyRow - 2, emptyCol], [emptyRow + 2, emptyCol],
+                    [emptyRow, emptyCol - 2], [emptyRow, emptyCol + 2]
+                ];
+                const validMoves = possibleMoves.filter(([r, c]) => 
+                    r >= 0 && r < gridSize && c >= 0 && c < gridSize);
+                if (validMoves.length) {
+                    const [moveRow, moveCol] = validMoves[Math.floor(Math.random() * validMoves.length)];
+                    const moveInfo = isValidMove(emptyRow, emptyCol, moveRow, moveCol);
+                    if (moveInfo) {
+                        if (moveInfo.type === 'single') {
+                            [board[emptyRow][emptyCol], board[moveRow][moveCol]] = 
+                            [board[moveRow][moveCol], board[emptyRow][emptyCol]];
+                        } else if (moveInfo.type === 'double') {
+                            const [[r1, c1], [r2, c2]] = moveInfo.positions;
+                            if (emptyRow === moveRow) {
+                                board[emptyRow][emptyCol] = board[moveRow][c2];
+                                board[moveRow][c2] = board[moveRow][c1];
+                                board[moveRow][c1] = 0;
+                            } else {
+                                board[emptyRow][emptyCol] = board[r2][moveCol];
+                                board[r2][moveCol] = board[r1][moveCol];
+                                board[r1][moveCol] = 0;
+                            }
+                        }
+                    }
+                }
+            }
+            moveCount = 0;
+            secondsElapsed = 0;
+            stopTimer();
+            document.getElementById('timer').textContent = '00:00';
+            document.getElementById('move-counter').textContent = moveCount;
+            document.getElementById('message').textContent = '';
+            drawBoard();
+        }
 
-  function recordHighScore() {
-    const list = loadHighScores();
-    list.push({ moves: moves, time: elapsedSeconds, when: Date.now() });
-    // sort: primary by moves ascending, secondary by time ascending
-    list.sort((a,b) => a.moves - b.moves || a.time - b.time || a.when - b.when);
-    const top = list.slice(0,5);
-    saveHighScores(top);
-    renderScores();
-  }
+        function updateHighScores() {
+            const highScoresList = document.getElementById('high-scores-list');
+            highScoresList.innerHTML = '';
+            if (highScores.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = 'No high scores yet';
+                highScoresList.appendChild(li);
+            } else {
+                highScores.forEach((score, index) => {
+                    const li = document.createElement('li');
+                    const minutes = Math.floor(score.time / 60);
+                    const seconds = score.time % 60;
+                    li.textContent = `${index + 1}. Moves: ${score.moves}, Time: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    highScoresList.appendChild(li);
+                });
+            }
+        }
 
-  function clearScores() {
-    localStorage.removeItem(STORAGE_KEY);
-    renderScores();
-  }
+        function saveHighScore() {
+            highScores.push({ moves: moveCount, time: secondsElapsed });
+            highScores.sort((a, b) => a.moves === b.moves ? a.time - b.time : a.moves - b.moves);
+            highScores = highScores.slice(0, 5); // Keep top 5 scores
+            localStorage.setItem('highScores', JSON.stringify(highScores));
+        }
 
-  function renderScores() {
-    const list = loadHighScores();
-    scoreListEl.innerHTML = '';
-    if (list.length === 0) {
-      const li = document.createElement('li');
-      li.textContent = 'No scores yet';
-      scoreListEl.appendChild(li);
-      return;
-    }
-    list.forEach(entry => {
-      const li = document.createElement('li');
-      const mins = Math.floor(entry.time/60);
-      const secs = entry.time % 60;
-      li.textContent = `${entry.moves} moves — ${mins}:${secs < 10 ? '0'+secs : secs}`;
-      scoreListEl.appendChild(li);
-    });
-  }
+        function clearHighScores() {
+            highScores = [];
+            localStorage.removeItem('highScores');
+            updateHighScores();
+        }
 
-  // Reset to solved state
-  function reset() {
-    board = solvedLayout().slice();
-    moves = 0;
-    resetTimer();
-    updateHUD();
-    updateTime();
-    solved = true; // it's solved
-    render();
-    statusEl.textContent = 'Solved';
-  }
+        function checkWin() {
+            if (JSON.stringify(board) === JSON.stringify(solvedBoard)) {
+                stopTimer();
+                saveHighScore();
+                document.getElementById('message').textContent = 
+                    `Solved! Moves: ${moveCount}, Time: ${document.getElementById('timer').textContent}`;
+                updateHighScores();
+            }
+        }
 
-  // Initialize
-  function init() {
-    board = solvedLayout().slice();
-    solved = true;
-    render();
-    updateHUD();
-    updateTime();
-    renderScores();
-    // Event listeners
-    shuffleBtn.addEventListener('click', () => {
-      shuffle(200);
-      // focus board for keyboard control
-      boardEl.focus();
-    });
-    resetBtn.addEventListener('click', () => {
-      reset();
-      boardEl.focus();
-    });
-    clearScoresBtn.addEventListener('click', () => {
-      if (confirm('Clear all saved high scores?')) {
-        clearScores();
-      }
-    });
-    document.addEventListener('keydown', onKeyDown);
-    // allow clicking on board background to focus for keyboard support
-    boardEl.addEventListener('click', () => boardEl.focus());
-  }
-
-  init();
-
-})();
-</script>
-
+        // Initialize the game
+        shuffleBoard();
+    </script>
 </body>
 </html>
