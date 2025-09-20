@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>3×3 Sliding Tile Puzzle</title>
+<style>
+  /* 1999-style minimal look: system font, plain background, square buttons, borders */
+  html,body{
+    height:100%;
+    margin:0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #f5f5f5;
+    color: #000;
+    -webkit-font-smoothing:antialiased;
+    padding:20px;
+  }
+
+  h1 { font-size:18px; margin:0 0 8px 0; }
+  .container { display:flex; gap:20px; align-items:flex-start; }
+
+  /* Puzzle area */
+  .puzzle-wrap {
+    border:1px solid #000;
+    background: #fff;
+    padding:10px;
+    width: 230px;
+  }
+
+  .board {
+    display:grid;
+    grid-template-columns: repeat(3, 64px);
+    grid-template-rows: repeat(3, 64px);
+    gap:6px;
+    width: 3*70px;
+    margin-bottom:10px;
+  }
+
+  .tile {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:64px;
+    height:64px;
+    border:1px solid #000;
+    background: #e9e9e9;
+    cursor:pointer;
+    font-weight:700;
+    font-size:20px;
+    user-select:none;
+  }
+
+  .tile.blank {
+    background: #fff;
+    cursor:default;
+  }
+
+  /* Controls - square buttons, plain */
+  .controls {
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+  }
+  button {
+    padding:6px 10px;
+    border:1px solid #000;
+    background:#e9e9e9;
+    cursor:pointer;
+    font-size:13px;
+  }
+  button:active { transform:translateY(1px); }
+
+  .status { margin-top:8px; font-size:13px; }
+
+  /* High scores */
+  .scores {
+    border:1px solid #000;
+    background:#fff;
+    padding:10px;
+    width:260px;
+  }
+  .scores h2 { font-size:14px; margin:0 0 8px 0; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td,th { border:1px solid #000; padding:4px; text-align:left; }
+
+  /* Flash animation when solved */
+  @keyframes flash-bg {
+    0% { background-color: white; }
+    25% { background-color: yellow; }
+    50% { background-color: white; }
+    75% { background-color: yellow; }
+    100% { background-color: white; }
+  }
+  .flashing {
+    animation: flash-bg 0.6s linear 1;
+  }
+
+  /* small footer note */
+  .note { margin-top:8px; font-size:12px; color:#333; }
+</style>
+</head>
+<body>
+  <h1>3×3 Sliding Tile Puzzle</h1>
+  <div class="container">
+    <div class="puzzle-wrap" id="puzzleWrap">
+      <div class="board" id="board" aria-label="Sliding puzzle board"></div>
+
+      <div class="controls" id="controls">
+        <button id="shuffleBtn">Shuffle</button>
+        <button id="resetBtn">Reset</button>
+        <button id="showSolBtn">Show Solution</button>
+      </div>
+
+      <div class="status">
+        <div>Moves: <span id="moves">0</span></div>
+        <div>Time: <span id="time">00:00</span></div>
+        <div>Status: <span id="solved">Not solved</span></div>
+      </div>
+      <div class="note">Use mouse or arrow keys to move tiles.</div>
+    </div>
+
+    <div class="scores" id="scoresWrap">
+      <h2>High Scores (Top 5)</h2>
+      <table id="scoresTable">
+        <thead>
+          <tr><th>#</th><th>Name</th><th>Moves</th><th>Time</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div style="margin-top:8px; display:flex; gap:6px;">
+        <button id="clearScoresBtn">Clear Scores</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  // Model: array of 9 values: 1..8 and 0 for blank
+  const boardEl = document.getElementById('board');
+  const movesEl = document.getElementById('moves');
+  const timeEl = document.getElementById('time');
+  const solvedEl = document.getElementById('solved');
+  const puzzleWrap = document.getElementById('puzzleWrap');
+
+  const shuffleBtn = document.getElementById('shuffleBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const showSolBtn = document.getElementById('showSolBtn');
+  const clearScoresBtn = document.getElementById('clearScoresBtn');
+
+  const scoresTableBody = document.querySelector('#scoresTable tbody');
+  const STORAGE_KEY = 'sliding_high_scores_v1';
+
+  let state = [1,2,3,4,5,6,7,8,0]; // solved init
+  let moves = 0;
+  let timerInterval = null;
+  let startTime = null;
+  let elapsedSeconds = 0;
+  let solved = false;
+  let solutionShown = false; // if Show Solution used
+  let movedSinceShuffle = false;
+
+  // --- Utilities ---
+  function render() {
+    boardEl.innerHTML = '';
+    state.forEach((val, idx) => {
+      const tile = document.createElement('div');
+      tile.className = 'tile' + (val === 0 ? ' blank' : '');
+      tile.textContent = val === 0 ? '' : String(val);
+      tile.dataset.index = idx;
+      tile.tabIndex = val === 0 ? -1 : 0;
+      tile.addEventListener('click', () => tryMoveTile(idx));
+      boardEl.appendChild(tile);
+    });
+    movesEl.textContent = moves;
+    timeEl.textContent = formatTime(elapsedSeconds);
+    solvedEl.textContent = solved ? 'Solved' : 'Not solved';
+  }
+
+  function formatTime(sec) {
+    const m = Math.floor(sec/60).toString().padStart(2,'0');
+    const s = (sec%60).toString().padStart(2,'0');
+    return `${m}:${s}`;
+  }
+
+  function indexToRC(i){ return {r: Math.floor(i/3), c: i%3}; }
+  function rcToIndex(r,c){ return r*3 + c; }
+
+  function findBlank(){ return state.indexOf(0); }
+
+  function isAdjacent(i, j){
+    const a = indexToRC(i);
+    const b = indexToRC(j);
+    return (Math.abs(a.r - b.r) + Math.abs(a.c - b.c)) === 1;
+  }
+
+  // Move tile at position idx into blank if adjacent
+  function tryMoveTile(idx){
+    const blank = findBlank();
+    if (solved) return; // no moves after solved
+    if (isAdjacent(idx, blank)){
+      swap(idx, blank);
+      moves++;
+      movedSinceShuffle = true;
+      if (!startTime) startTimer();
+      render();
+      checkSolvedAndHandle();
+    }
+  }
+
+  function swap(i,j){
+    const t = state[i]; state[i] = state[j]; state[j] = t;
+  }
+
+  // Keyboard handling: arrow keys cause the tile in that direction to move into blank
+  document.addEventListener('keydown', function(e){
+    if (solved) return;
+    const blank = findBlank();
+    let target = null;
+    if (e.key === 'ArrowUp'){
+      // tile above blank (blank - 3) moves down into blank
+      if (blank - 3 >= 0) target = blank - 3;
+    } else if (e.key === 'ArrowDown'){
+      if (blank + 3 <= 8) target = blank + 3;
+    } else if (e.key === 'ArrowLeft'){
+      if ((blank % 3) - 1 >= 0) target = blank - 1;
+    } else if (e.key === 'ArrowRight'){
+      if ((blank % 3) + 1 <= 2) target = blank + 1;
+    } else {
+      return; // ignore other keys
+    }
+    e.preventDefault();
+    if (target !== null){
+      tryMoveTile(target);
+    }
+  });
+
+  // --- Timer ---
+  function startTimer(){
+    startTime = Date.now() - (elapsedSeconds * 1000);
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+      elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+      timeEl.textContent = formatTime(elapsedSeconds);
+    }, 250);
+  }
+  function stopTimer(){
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    startTime = null;
+  }
+  function resetTimer(){
+    stopTimer();
+    elapsedSeconds = 0;
+    timeEl.textContent = formatTime(elapsedSeconds);
+  }
+
+  // --- Shuffle ensuring solvable ---
+  function shuffle() {
+    // generate random permutation until solvable and not solved
+    let arr;
+    do {
+      arr = shuffleArray([1,2,3,4,5,6,7,8,0]);
+    } while (!isSolvable(arr) || isSolvedArray(arr));
+    state = arr.slice();
+    moves = 0;
+    movedSinceShuffle = false;
+    solved = false;
+    solutionShown = false;
+    resetTimer();
+    render();
+  }
+
+  function shuffleArray(a){
+    const arr = a.slice();
+    for (let i = arr.length -1; i>0; i--){
+      const j = Math.floor(Math.random()* (i+1));
+      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+
+  function isSolvedArray(arr){
+    for (let i=0;i<8;i++) if (arr[i] !== i+1) return false;
+    return arr[8] === 0;
+  }
+
+  function isSolvable(arr){
+    // For 3x3, solvable if number of inversions is even
+    const flat = arr.filter(x => x !== 0);
+    let inv = 0;
+    for (let i=0;i<flat.length;i++){
+      for (let j=i+1;j<flat.length;j++){
+        if (flat[i] > flat[j]) inv++;
+      }
+    }
+    return inv % 2 === 0;
+  }
+
+  // --- Reset to solved state ---
+  function resetToSolved(){
+    state = [1,2,3,4,5,6,7,8,0];
+    moves = 0;
+    solved = true; // solved state
+    solutionShown = false;
+    movedSinceShuffle = false;
+    resetTimer();
+    render();
+    // If user intentionally reset, we won't auto-add high score.
+  }
+
+  // --- Show solution ---
+  function showSolution(){
+    state = [1,2,3,4,5,6,7,8,0];
+    moves = 0; // showing solution doesn't count moves
+    solved = true;
+    solutionShown = true;
+    stopTimer();
+    render();
+    flashAndAlert('Solution revealed (not recorded in high scores).');
+  }
+
+  // --- Check solved and handle high score ---
+  function checkSolvedAndHandle(){
+    if (isSolvedArray(state)){
+      solved = true;
+      stopTimer();
+      render();
+      // Flash then alert. If solution was shown with button, we won't record a high score.
+      if (solutionShown){
+        flashAndAlert('Solution revealed (not recorded).');
+      } else {
+        flashAndAlert('Congratulations! You solved the puzzle.', () => {
+          // After flashing+alert, record high score only if user actually moved (to avoid empty solves)
+          if (movedSinceShuffle) {
+            saveHighScorePrompt();
+          }
+        });
+      }
+    }
+  }
+
+  function flashAndAlert(message, callback) {
+    puzzleWrap.classList.add('flashing');
+    // animation defined as 0.6s
+    setTimeout(() => {
+      puzzleWrap.classList.remove('flashing');
+      // show alert
+      alert(message + ' Moves: ' + moves + ', Time: ' + formatTime(elapsedSeconds));
+      if (typeof callback === 'function') callback();
+    }, 650);
+  }
+
+  // --- High scores ---
+  function loadHighScores(){
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      return arr;
+    } catch (e) { return []; }
+  }
+  function saveHighScores(arr){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr.slice(0,5)));
+    renderHighScores();
+  }
+
+  function renderHighScores(){
+    const arr = loadHighScores();
+    scoresTableBody.innerHTML = '';
+    arr.forEach((r,i) => {
+      const tr = document.createElement('tr');
+      const rank = document.createElement('td'); rank.textContent = String(i+1);
+      const name = document.createElement('td'); name.textContent = r.name || 'Player';
+      const movesTd = document.createElement('td'); movesTd.textContent = String(r.moves);
+      const timeTd = document.createElement('td'); timeTd.textContent = formatTime(r.time);
+      tr.appendChild(rank); tr.appendChild(name); tr.appendChild(movesTd); tr.appendChild(timeTd);
+      scoresTableBody.appendChild(tr);
+    });
+    // fill blank rows up to 5
+    for (let i=arr.length;i<5;i++){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>—</td><td>—</td><td>—</td>`;
+      scoresTableBody.appendChild(tr);
+    }
+  }
+
+  function saveHighScorePrompt(){
+    const name = prompt('You made a high score! Enter your name (max 20 chars):', 'Player');
+    let safeName = 'Player';
+    if (name !== null) {
+      safeName = String(name).trim().slice(0,20) || 'Player';
+    } else {
+      safeName = 'Player';
+    }
+    const record = { name: safeName, moves: moves, time: elapsedSeconds, ts: Date.now() };
+    const arr = loadHighScores();
+    arr.push(record);
+    // sort by moves ascending, then time ascending
+    arr.sort((a,b) => {
+      if (a.moves !== b.moves) return a.moves - b.moves;
+      return a.time - b.time;
+    });
+    saveHighScores(arr.slice(0,5));
+  }
+
+  // --- Buttons ---
+  shuffleBtn.addEventListener('click', () => { shuffle(); });
+  resetBtn.addEventListener('click', () => { resetToSolved(); });
+  showSolBtn.addEventListener('click', () => {
+    const ok = confirm('Show the solved puzzle? This will reveal the solution (it will not be recorded as a score).');
+    if (ok) showSolution();
+  });
+
+  clearScoresBtn.addEventListener('click', () => {
+    if (confirm('Clear all saved high scores?')) {
+      localStorage.removeItem(STORAGE_KEY);
+      renderHighScores();
+    }
+  });
+
+  // initialize
+  render();
+  renderHighScores();
+
+  // helper to check current solved status on load
+  if (isSolvedArray(state)) {
+    solved = true;
+  }
+
+  // Utility: check solved on any manual state change that might not go through tryMoveTile
+  function externalCheck(){
+    if (isSolvedArray(state) && !solved) {
+      checkSolvedAndHandle();
+    }
+  }
+
+  // --- solvability helpers used earlier --- (kept for clarity)
+  // (already implemented above)
+
+  // Expose some functions for debugging in console (old-school)
+  window._puzzle = {
+    state: () => state.slice(),
+    shuffle,
+    resetToSolved,
+    showSolution
+  };
+
+})();
+</script>
+</body>
+</html>
